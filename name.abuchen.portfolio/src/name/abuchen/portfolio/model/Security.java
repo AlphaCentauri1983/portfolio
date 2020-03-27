@@ -9,7 +9,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
+
+import com.google.common.base.Strings;
 
 import name.abuchen.portfolio.money.CurrencyUnit;
 import name.abuchen.portfolio.util.Pair;
@@ -511,6 +516,49 @@ public final class Security implements Attributable, InvestmentVehicle
         return properties.stream();
     }
 
+    public Optional<String> getPropertyValue(SecurityProperty.Type type, String name)
+    {
+        return getProperties().filter(p -> p.getType() == type && name.equals(p.getName()))
+                        .map(SecurityProperty::getValue).findAny();
+    }
+
+    /**
+     * Sets the property values. If the value is null, the property is removed
+     * if it exists. Returns <tt>true</tt> if the property was updated.
+     */
+    public boolean setPropertyValue(SecurityProperty.Type type, String name, String value)
+    {
+        if (properties == null)
+            properties = new ArrayList<>();
+
+        Optional<SecurityProperty> prop = properties.stream()
+                        .filter(p -> p.getType() == type && name.equals(p.getName())).findAny();
+
+        if (prop.isPresent())
+        {
+            boolean isEqual = Objects.equals(prop.get().getValue(), value);
+
+            if (!isEqual)
+            {
+                properties.remove(prop.get());
+
+                if (value != null)
+                    properties.add(new SecurityProperty(type, name, value));
+            }
+
+            return !isEqual;
+        }
+        else if (value != null)
+        {
+            properties.add(new SecurityProperty(type, name, value));
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
     public void addProperty(SecurityProperty data)
     {
         if (properties == null)
@@ -518,11 +566,27 @@ public final class Security implements Attributable, InvestmentVehicle
         this.properties.add(data);
     }
 
+    /**
+     * Removes the given property, if it is present. Returns <tt>true</tt> if
+     * the properties contained the specified property (or equivalently, if this
+     * list changed as a result of the call).
+     */
     public boolean removeProperty(SecurityProperty data)
     {
         if (properties == null)
-            properties = new ArrayList<>();
+            return false;
         return this.properties.remove(data);
+    }
+
+    /**
+     * Removes all of the SecurityProperties that satisfy the given predicate.
+     */
+    public boolean removePropertyIf(Predicate<SecurityProperty> filter)
+    {
+        if (properties != null)
+            return properties.removeIf(filter);
+        else
+            return false;
     }
 
     @Override
@@ -537,6 +601,32 @@ public final class Security implements Attributable, InvestmentVehicle
     public void setAttributes(Attributes attributes)
     {
         this.attributes = attributes;
+    }
+
+    /**
+     * Gets all URLs contained in the notes.
+     * 
+     * @return list of URLs
+     */
+    public Stream<Bookmark> getCustomBookmarks()
+    {
+        List<Bookmark> bookmarks = new ArrayList<>();
+
+        // extract bookmarks from attributes
+
+        getAttributes().getAllValues().filter(v -> v instanceof Bookmark).forEach(v -> bookmarks.add((Bookmark) v));
+
+        // extract bookmarks from notes
+
+        if (!Strings.isNullOrEmpty(note))
+        {
+            Pattern urlPattern = Pattern.compile("(https?\\:\\/\\/[^ \\t\\r\\n]+)", Pattern.CASE_INSENSITIVE); //$NON-NLS-1$
+            Matcher m = urlPattern.matcher(note);
+            while (m.find())
+                bookmarks.add(new Bookmark(m.group()));
+        }
+
+        return bookmarks.stream();
     }
 
     public List<TransactionPair<?>> getTransactions(Client client)

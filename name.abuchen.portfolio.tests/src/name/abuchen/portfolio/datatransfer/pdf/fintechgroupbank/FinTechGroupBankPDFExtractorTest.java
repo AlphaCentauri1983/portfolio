@@ -690,6 +690,37 @@ public class FinTechGroupBankPDFExtractorTest
     }
 
     @Test
+    public void testErtragsgutschrift5()
+    {
+        FinTechGroupBankPDFExtractor extractor = new FinTechGroupBankPDFExtractor(new Client());
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "FlatexErtragsgutschrift5.txt"),
+                        errors);
+
+        assertThat(errors, empty());
+        assertThat(results.size(), is(2));
+
+        // security
+        Security security = checkSecurity(results, "US5949181045", "870747", "MICROSOFT    DL-,00000625",
+                        CurrencyUnit.USD);
+
+        Optional<Item> item = results.stream().filter(i -> i instanceof TransactionItem).findFirst();
+        assertThat(item.isPresent(), is(true));
+        AccountTransaction transaction = (AccountTransaction) item.orElseThrow(IllegalArgumentException::new)
+                        .getSubject();
+
+        assertThat(transaction.getType(), is(AccountTransaction.Type.DIVIDENDS));
+        assertThat(transaction.getSecurity(), is(security));
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2019-12-12T00:00")));
+        assertThat(transaction.getAmount(), is(Values.Amount.factorize(4.98)));
+        assertThat(transaction.getUnitSum(Unit.Type.TAX),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.86 + (1.15 / 1.1137)))));
+        assertThat(transaction.getShares(), is(Values.Share.factorize(15)));
+    }
+
+    @Test
     public void testDividendeAusland()
     {
         FinTechGroupBankPDFExtractor extractor = new FinTechGroupBankPDFExtractor(new Client());
@@ -1395,6 +1426,35 @@ public class FinTechGroupBankPDFExtractorTest
         assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2016-12-31T00:00")));
         assertThat(transaction.getAmount(), is(Values.Amount.factorize(4.94)));
         assertThat(transaction.getCurrencyCode(), is("EUR"));
+    }
+
+    @Test
+    public void testVorabpauschale01()
+    {
+        FinTechGroupBankPDFExtractor extractor = new FinTechGroupBankPDFExtractor(new Client());
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "FlatexVorabpauschale01.txt"),
+                        errors);
+
+        assertThat(errors, empty());
+        assertThat(results.size(), is(2));
+        new AssertImportActions().check(results, CurrencyUnit.EUR);
+
+        // security
+        Security security = checkSecurity(results, "IE00BKM4GZ66", "A111X9", "ISHS MSCI EM USD-AC", CurrencyUnit.EUR);
+
+        Optional<Item> item = results.stream().filter(i -> i instanceof TransactionItem).findFirst();
+        assertThat(item.isPresent(), is(true));
+        AccountTransaction transaction = (AccountTransaction) item.orElseThrow(IllegalArgumentException::new)
+                        .getSubject();
+
+        assertThat(transaction.getType(), is(AccountTransaction.Type.TAXES));
+        assertThat(transaction.getSecurity(), is(security));
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2020-01-11T00:00")));
+        assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(4.69))));
+        assertThat(transaction.getShares(), is(Values.Share.factorize(476)));
     }
 
     private Security checkSecurity(List<Item> results, String isin, String wkn, String name, String currencyUnit)

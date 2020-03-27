@@ -5,7 +5,7 @@
 
 	<groupId>name.abuchen.portfolio</groupId>
 	<artifactId>portfolio-app</artifactId>
-	<version>0.43.2-SNAPSHOT</version>
+	<version>0.45.2-SNAPSHOT</version>
 	<packaging>pom</packaging>
 
 	<name>Portfolio Performance</name>
@@ -157,6 +157,11 @@
 						</filter>
 						<filter>
 							<type>eclipse-plugin</type>
+							<id>org.eclipse.pde.ds.lib.nl_pt</id>
+							<removeAll />
+						</filter>
+						<filter>
+							<type>eclipse-plugin</type>
 							<id>org.eclipse.e4.ui.swt.gtk.nl_de</id>
 							<removeAll />
 						</filter>
@@ -168,6 +173,11 @@
 						<filter>
 							<type>eclipse-plugin</type>
 							<id>org.eclipse.e4.ui.swt.gtk.nl_nl</id>
+							<removeAll />
+						</filter>
+						<filter>
+							<type>eclipse-plugin</type>
+							<id>org.eclipse.e4.ui.swt.gtk.nl_pt</id>
 							<removeAll />
 						</filter>
 					</filters>
@@ -264,7 +274,7 @@
 						<storetype>PKCS11</storetype>
 						<providerClass>sun.security.pkcs11.SunPKCS11</providerClass>
 						<storepass>${jarsigner.storepass}</storepass>
-						<alias>Open Source Developer, Andreas Buchen</alias>
+						<alias>e0f08454-41b5-4143-91d8-471c1d8004c3</alias>
 						<providerArg>${jarsigner.providerArg}</providerArg>
 						<certchain>${project.basedir}/../portfolio-app/certchain.txt</certchain>
 						<tsa>http://time.certum.pl/</tsa>
@@ -314,7 +324,7 @@
 				<plugin>
 					<groupId>name.abuchen</groupId>
 					<artifactId>fix-info-plist-maven-plugin</artifactId>
-					<version>1.5</version>
+					<version>1.6</version>
 				</plugin>
 				<plugin>
 					<groupId>org.codehaus.mojo</groupId>

@@ -48,16 +48,20 @@ public class PDFImportAssistant
         extractors.add(new UnicreditPDFExtractor(client));
         extractors.add(new HelloBankPDFExtractor(client));
         extractors.add(new ViacPDFExtractor(client));
+        extractors.add(new TargobankPDFExtractor(client));
         extractors.add(new TradeRepublicPDFExtractor(client));
         extractors.add(new PostfinancePDFExtractor(client));
         extractors.add(new SutorPDFExtractor(client));
         extractors.add(new SwissquotePDFExtractor(client));
+        extractors.add(new DZBankPDFExtractor(client));
 
         extractors.add(new JSONPDFExtractor(client, "deutsche-bank-purchase.json")); //$NON-NLS-1$
         extractors.add(new JSONPDFExtractor(client, "deutsche-bank-sale.json")); //$NON-NLS-1$
         extractors.add(new JSONPDFExtractor(client, "ffb-purchase.json")); //$NON-NLS-1$
         extractors.add(new JSONPDFExtractor(client, "trade-republic-dividends.json")); //$NON-NLS-1$
         extractors.add(new JSONPDFExtractor(client, "trade-republic-investmentplan.json")); //$NON-NLS-1$
+        extractors.add(new JSONPDFExtractor(client, "ebase.json")); //$NON-NLS-1$
+        extractors.add(new JSONPDFExtractor(client, "postbank-purchase.json")); //$NON-NLS-1$
     }
 
     public Map<Extractor, List<Item>> run(IProgressMonitor monitor, Map<File, List<Exception>> errors)
@@ -129,17 +133,24 @@ public class PDFImportAssistant
         List<Item> items = null;
         for (Extractor extractor : extractors)
         {
-            items = extractor.extract(securityCache, inputFile, errors);
+            List<Exception> warnings = new ArrayList<>();
+            items = extractor.extract(securityCache, inputFile, warnings);
+
             if (!items.isEmpty())
+            {
+                // we extracted items; remove all errors from all other
+                // extractors that
+                // did not find any transactions in this text
+                errors.clear();
+                errors.addAll(warnings);
                 break;
+            }
+
+            errors.addAll(warnings);
         }
 
         if (items == null || items.isEmpty())
             return Collections.emptyList();
-
-        // we extracted items; remove all errors from all other extractors that
-        // did not find any transactions in this text
-        errors.removeIf(e -> e instanceof UnsupportedOperationException);
 
         Map<Extractor, List<Item>> itemsByExtractor = new HashMap<>();
         itemsByExtractor.put(extractors.get(0), items);

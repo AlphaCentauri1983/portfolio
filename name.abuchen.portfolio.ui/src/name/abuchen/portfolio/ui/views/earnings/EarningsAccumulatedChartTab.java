@@ -1,12 +1,18 @@
 package name.abuchen.portfolio.ui.views.earnings;
 
+import java.time.LocalDate;
+import java.time.Month;
+
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Control;
 import org.swtchart.ILineSeries;
 import org.swtchart.ILineSeries.PlotSymbolType;
 import org.swtchart.ISeries.SeriesType;
 
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.ui.Messages;
+import name.abuchen.portfolio.ui.util.chart.TimelineChart.ThousandsNumberFormat;
 
 public class EarningsAccumulatedChartTab extends AbstractChartTab
 {
@@ -17,8 +23,21 @@ public class EarningsAccumulatedChartTab extends AbstractChartTab
     }
 
     @Override
+    public Control createControl(Composite parent)
+    {
+        Control control = super.createControl(parent);
+
+        getChart().getAxisSet().getYAxis(0).getTick().setFormat(new ThousandsNumberFormat());
+
+        return control;
+    }
+
+    @Override
     protected void createSeries()
     {
+        LocalDate now = LocalDate.now();
+        boolean isJanuary = now.getMonth() == Month.JANUARY;
+
         for (int index = 0; index < model.getNoOfMonths(); index += 12)
         {
             int year = model.getStartYear() + (index / 12);
@@ -40,6 +59,16 @@ public class EarningsAccumulatedChartTab extends AbstractChartTab
             lineSeries.setLineWidth(2);
             lineSeries.setSymbolType(PlotSymbolType.NONE);
             lineSeries.setAntialias(SWT.ON);
+
+            // if January is the only data point, then no line is drawn (there
+            // is no February value to draw to). Therefore we make sure that at
+            // least a symbol is drawn for the January data point
+            if (isJanuary && year == now.getYear())
+            {
+                lineSeries.setSymbolSize(1);
+                lineSeries.setSymbolType(PlotSymbolType.SQUARE);
+            }
+
         }
     }
 }

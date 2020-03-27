@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: %Bundle-Name
 Bundle-SymbolicName: name.abuchen.portfolio
-Bundle-Version: 0.43.2.qualifier
+Bundle-Version: 0.45.2.qualifier
 Bundle-RequiredExecutionEnvironment: JavaSE-1.8
 Export-Package: name.abuchen.portfolio.checks,
  name.abuchen.portfolio.datatransfer,
@@ -20,11 +20,13 @@ Export-Package: name.abuchen.portfolio.checks,
  name.abuchen.portfolio.snapshot.filter,
  name.abuchen.portfolio.snapshot.security,
  name.abuchen.portfolio.snapshot.trades,
+ name.abuchen.portfolio.snapshot.trail,
  name.abuchen.portfolio.util
 Import-Package: com.google.common.base,
  com.google.common.io,
  com.google.common.util.concurrent,
  com.google.gson,
+ com.google.gson.reflect,
  com.thoughtworks.xstream,
  com.thoughtworks.xstream.annotations,
  com.thoughtworks.xstream.converters,
@@ -35,7 +37,6 @@ Import-Package: com.google.common.base,
  com.thoughtworks.xstream.mapper,
  javax.annotation,
  org.apache.commons.csv,
- org.apache.commons.lang3,
  org.apache.pdfbox.pdmodel,
  org.apache.pdfbox.util,
  org.bouncycastle,
@@ -54,6 +55,7 @@ Bundle-Vendor: %Bundle-Vendor
 Require-Bundle: org.eclipse.core.runtime,
  org.apache.httpcomponents.httpclient,
  org.apache.httpcomponents.httpcore,
- org.apache.pdfbox
+ org.apache.pdfbox,
+ com.jayway.jsonpath.json-path
 Automatic-Module-Name: name.abuchen.portfolio
 Eclipse-ExtensibleAPI: true

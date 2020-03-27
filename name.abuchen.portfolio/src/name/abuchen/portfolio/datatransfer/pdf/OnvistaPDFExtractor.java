@@ -48,6 +48,7 @@ public class OnvistaPDFExtractor extends AbstractPDFExtractor
         addAccountStatementTransaction();
         addAccountStatementTransaction2017();
         addRegistrationFeeTransaction();
+        addTaxVorabpauschaleTransaction();
     }
 
     private void addBuyTransaction()
@@ -315,7 +316,18 @@ public class OnvistaPDFExtractor extends AbstractPDFExtractor
 
     private void addDividendTransaction()
     {
-        DocumentType type = new DocumentType("Erträgnisgutschrift");
+        DocumentType type = new DocumentType("Erträgnisgutschrift", (context, lines) -> {
+
+            // save exchange rate in order to later convert tax entries
+
+            Pattern pCurrency = Pattern.compile("^.* (?<currencypair>\\w{3}+/\\w{3}+) (?<exchangeRate>[\\d,.]+) .*$");
+            for (String line : lines)
+            {
+                Matcher m = pCurrency.matcher(line);
+                if (m.matches())
+                    context.put(m.group("currencypair"), m.group("exchangeRate"));
+            }
+        });
         this.addDocumentTyp(type);
 
         // Erträgnisgutschrift allein ist nicht gut hier, da es schon in der
@@ -335,27 +347,23 @@ public class OnvistaPDFExtractor extends AbstractPDFExtractor
         block.set(pdfTransaction);
         pdfTransaction
 
-                        .section("name", "isin") //
+                        .section("name", "isin", "currency") //
                         .find("Gattungsbezeichnung(.*) ISIN")
                         // Commerzbank AG Inhaber-Aktien o.N. DE000CBK1001
                         // 5,5% TUI AG Wandelanl.v.2009(2014) 17.11.2014
                         // 17.11.2010 DE000TUAG117
                         .match("(?<name>.*?) (\\d+.\\d+.\\d{4} ){0,2}(?<isin>[^ ]\\S*)$") //
+                        .match(".* (?<currency>\\w{3}+) [\\d,.]+$")
                         .assign((t, v) -> t.setSecurity(getOrCreateSecurity(v)))
 
-                        .section("notation", "shares", "date", "amount", "currency")
-                        // .find("Nominal (Ex-Tag )?Zahltag (.*etrag pro
-                        // .*)?(Zinssatz.*)?")
-                        // STK 25,000 17.05.2013 17.05.2013 EUR 0,700000
-                        // Leistungen aus dem steuerlichen Einlagenkonto (§27
-                        // KStG) EUR 17,50
-                        .match("(?<notation>^\\w{3}+) (?<shares>[\\d.]+(,\\d{3,})?) (\\d+.\\d+.\\d{4}+) (?<date>\\d+.\\d+.\\d{4}+)?(.*)")
-                        .match("(?<date>\\d+.\\d+.\\d{4}+)?(\\d{6,12})?(.{7,58} )?(?<currency>\\w{3}+) (?<amount>\\d{1,3}(\\.\\d{3})*(,\\d{2})?)")
+                        .section("notation", "shares", "date") //
+                        .match("(?<notation>^\\w{3}+) (?<shares>[\\d.]+(,\\d{3,})?) (\\d+.\\d+.\\d{4}+ )?(?<date>\\d+.\\d+.\\d{4}+) .*")
                         .assign((t, v) -> {
                             String notation = v.get("notation");
                             if (notation != null && !"STK".equalsIgnoreCase(notation))
                             {
-                                // Prozent-Notierung, Workaround..
+                                // Prozent-Notierung,
+                                // Workaround..
                                 t.setShares(asShares(v.get("shares")) / 100);
                             }
                             else
@@ -363,19 +371,125 @@ public class OnvistaPDFExtractor extends AbstractPDFExtractor
                                 t.setShares(asShares(v.get("shares")));
                             }
                             t.setDateTime(asDate(v.get("date")));
-                            t.setAmount(asAmount(v.get("amount")));
-                            t.setCurrencyCode(asCurrencyCode(v.get("currency")));
                         })
 
+                        .oneOf(
+
+                                        // without forex
+                                        section -> section
+                                                        .attributes("amount", "currency") //
+                                                        .match("(?<date>\\d+.\\d+.\\d{4}+) [^ ]* (?<currency>\\w{3}+) (?<amount>[\\d,.]+)")
+                                                        .assign((t, v) -> {
+                                                            t.setAmount(asAmount(v.get("amount")));
+                                                            t.setCurrencyCode(asCurrencyCode(v.get("currency")));
+                                                        }),
+
+                                        // reinvestition
+                                        section -> section
+                                                        .attributes("amount", "currency") //
+                                                        .match("Leistungen aus dem steuerlichen Einlagenkonto .* (?<currency>\\w{3}+) (?<amount>[\\d,.]+)")
+                                                        .assign((t, v) -> {
+                                                            t.setAmount(asAmount(v.get("amount")));
+                                                            t.setCurrencyCode(asCurrencyCode(v.get("currency")));
+                                                        }),
+
+                                        // with forex
+                                        section -> section
+                                                        .attributes("amount", "currency", "exchangeRate", "fxCurrency") //
+                                                        .match("(?<date>\\d+.\\d+.\\d{4}+) [^ ]* (\\w{3}+)/(?<fxCurrency>\\w{3}+) (?<exchangeRate>[\\d,.]+) (?<currency>\\w{3}+) (?<amount>[\\d,.]+)")
+                                                        .assign((t, v) -> {
+                                                            t.setAmount(asAmount(v.get("amount")));
+                                                            t.setCurrencyCode(asCurrencyCode(v.get("currency")));
+                                                            
+                                                            // create gross unit
+
+                                                            BigDecimal exchangeRate = asExchangeRate(
+                                                                            v.get("exchangeRate"));
+
+                                                            long fxAmount = exchangeRate
+                                                                            .multiply(BigDecimal.valueOf(t.getAmount()))
+                                                                            .setScale(0, RoundingMode.HALF_DOWN)
+                                                                            .longValue();
+
+                                                            Money forex = Money.of(asCurrencyCode(v.get("fxCurrency")),
+                                                                            fxAmount);
+
+                                                            Unit unit = new Unit(Unit.Type.GROSS_VALUE,
+                                                                            t.getMonetaryAmount(), forex,
+                                                                            BigDecimal.ONE.divide(exchangeRate, 10,
+                                                                                            RoundingMode.HALF_DOWN));
+                                                            
+                                                            // add gross value unit only if currency code of
+                                                            // security actually matches
+                                                            if (unit.getForex().getCurrencyCode().equals(t.getSecurity().getCurrencyCode()))
+                                                                t.addUnit(unit);
+                                                        })
+
+                        );
+        
+        // logic for processing taxes:
+        // * if tax currency matches transaction, just add
+        // * if it needs conversion, also fix gross value if present
+        // * otherwise use exchange rate stored in context
+
+        BiConsumer<AccountTransaction, Map<String, String>> taxAssignment = (t, v) -> {
+            Money tax = Money.of(asCurrencyCode(v.get("currency")), asAmount(v.get("tax")));
+
+            if (t.getCurrencyCode().equals(tax.getCurrencyCode()))
+            {
+                t.addUnit(new Unit(Unit.Type.TAX, tax));
+                return;
+            }
+            
+            Optional<Unit> grossValue = t.getUnit(Unit.Type.GROSS_VALUE);
+            
+            if (grossValue.isPresent() && grossValue.get().getForex().getCurrencyCode()
+                            .equals(tax.getCurrencyCode()))
+            {
+                Unit gv = grossValue.get();
+
+                Money money = Money.of(t.getCurrencyCode(), BigDecimal.valueOf(tax.getAmount())
+                                .multiply(gv.getExchangeRate())
+                                .setScale(0, RoundingMode.HALF_DOWN)
+                                .longValue());
+
+                t.addUnit(new Unit(Unit.Type.TAX, money, tax, gv.getExchangeRate()));
+
+                // fix gross value
+
+                t.removeUnit(grossValue.get());
+
+                t.addUnit(new Unit(Unit.Type.GROSS_VALUE,
+                                Money.of(gv.getAmount().getCurrencyCode(),
+                                                grossValue.get().getAmount().getAmount()
+                                                                + money.getAmount()),
+                                Money.of(gv.getForex().getCurrencyCode(), gv.getForex().getAmount()
+                                                                + tax.getAmount()),
+                                gv.getExchangeRate()));
+            }
+            else if (type.getCurrentContext()
+                            .containsKey(t.getCurrencyCode() + "/" + tax.getCurrencyCode()))
+            {
+                BigDecimal exchangeRate = asExchangeRate(type.getCurrentContext()
+                                .get(t.getCurrencyCode() + "/" + tax.getCurrencyCode()));
+
+                Money money = Money.of(t.getCurrencyCode(),
+                                BigDecimal.valueOf(tax.getAmount())
+                                                .divide(exchangeRate, 0, RoundingMode.HALF_DOWN)
+                                                .longValue());
+
+                t.addUnit(new Unit(Unit.Type.TAX, money));
+            }
+        };
+        
+        pdfTransaction
                         .section("tax", "currency").optional() //
-                        .match("^davon anrechenbare US-Quellensteuer [0-9]*% (?<currency>\\w{3}+)(\\s+)(?<tax>[\\d.,]*?)")
-                        .assign((t, v) -> t.addUnit(new Unit(Unit.Type.TAX,
-                                        Money.of(asCurrencyCode(v.get("currency")), asAmount(v.get("tax"))))))
+                        .match("^davon anrechenbare US-Quellensteuer [0-9]+% (?<currency>\\w{3}+)\\s+(?<tax>[\\d.,]*)")
+                        .assign(taxAssignment)
 
                         .section("tax", "currency").optional() //
-                        .match("^ausländische Quellensteuer [0-9]*% (?<currency>\\w{3}+)(\\s+)(?<tax>[\\d.,]*?)")
-                        .assign((t, v) -> t.addUnit(new Unit(Unit.Type.TAX,
-                                        Money.of(asCurrencyCode(v.get("currency")), asAmount(v.get("tax"))))))
+                        .match("^ausländische Quellensteuer [0-9]+% (?<currency>\\w{3}+)\\s+(?<tax>[\\d.,]+)")
+                        .assign(taxAssignment)
 
                         .wrap(TransactionItem::new);
 
@@ -1036,7 +1150,7 @@ public class OnvistaPDFExtractor extends AbstractPDFExtractor
                         .oneOf(
                                         section -> section.attributes("nameP2", "isin")
                                         // Holding SE DE000PAH0038 Girosammelverwahrung 59,3400
-                                        .match("(?<nameP2>.* )(?<isin>\\w{12}+) (.*)")
+                                                        .match("(?<nameP2>.* )(?<isin>\\w{12}) *([0-9.]{10} )?Girosammelverwahrung .*")
                                         .assign((t, v) -> {
                                             type.getCurrentContext().put("nameP2", v.get("nameP2"));
                                             type.getCurrentContext().put("isin", v.get("isin"));
@@ -1064,7 +1178,8 @@ public class OnvistaPDFExtractor extends AbstractPDFExtractor
                                         })
                         )
 
-                        .section("nameP4").optional().find("^(.*) (\\w{12}+) (.*)")
+                        .section("nameP4").optional() //
+                        .find("^(.*) (\\w{12}+) (.*)")
                         // en o.St.o.N
                         .match("^(?<nameP4>^.*\\.*)$")
                         .assign((t, v) -> type.getCurrentContext().put("nameP4", v.get("nameP4")))
@@ -1587,6 +1702,48 @@ public class OnvistaPDFExtractor extends AbstractPDFExtractor
                         .wrap(TransactionItem::new));
     }
 
+    private void addTaxVorabpauschaleTransaction()
+    {
+        DocumentType type = new DocumentType("Steuerpflichtige Vorabpauschale");
+        this.addDocumentTyp(type);
+
+        Block block = new Block("Steuerpflichtige Vorabpauschale(.*)");
+        type.addBlock(block);
+
+        Transaction<AccountTransaction> taxVorabpauschaleTransaction = new Transaction<AccountTransaction>()
+
+                        .subject(() -> {
+                            AccountTransaction entry = new AccountTransaction();
+                            entry.setType(AccountTransaction.Type.TAXES);
+                            return entry;
+                        })
+
+                        .section("name", "isin") //
+                        .find("Gattungsbezeichnung ISIN") //
+                        .match("(?<name>.*) (?<isin>[^ ]\\S*)$") //
+                        .assign((t, v) -> t.setSecurity(getOrCreateSecurity(v)))
+
+                        .section("tax", "currency").optional()
+                        .match("^Wert Konto-Nr. Betrag zu Ihren Lasten")
+                        .match("(\\d+\\.\\d+\\.\\d{4}+) .* (?<currency>\\w{3}+) (?<tax>\\d{1,3}(\\.\\d{3})*(,\\d{2})?)")
+                        .assign((t, v) -> {
+                            t.setCurrencyCode(asCurrencyCode(v.get("currency")));
+                            t.setAmount(asAmount(v.get("tax")));
+                        })
+
+                        .section("date").optional()
+                        .match("^Nominal Ex-Tag Zahltag Jahreswert Vorabpauschale pro Stück")
+                        // STK 1.212,000 02.01.2020 02.01.2020 EUR 0,1019
+                        .match("STK .* (?<exdate>\\d+\\.\\d+\\.\\d{4}+) (?<date>\\d+\\.\\d+\\.\\d{4}+) (\\w{3}+) .*")
+                        .assign((t, v) -> {
+                            t.setDateTime(asDate(v.get("date")));
+                        })
+
+                        .wrap(t -> t.getAmount() != 0 ? new TransactionItem(t) : null);
+
+        block.set(taxVorabpauschaleTransaction);
+    }
+    
     @Override
     public String getLabel()
     {

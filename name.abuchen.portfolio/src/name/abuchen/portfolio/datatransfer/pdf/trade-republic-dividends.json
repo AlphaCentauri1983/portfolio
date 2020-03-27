@@ -1,15 +1,14 @@
 {
 	"version": 1,
-	"name": "Deutsche Bank - Kaufbuchungen",
+	"name": "Trade Republic - Dividendenbuchung",
 	"locale": "de",
 	"pattern": [
-		"TRADE REPUBLIC",
-		"DIVIDENDE"
+		"TRADE REPUBLIC"
 	],
 	"transactions": [
 		{
 			"type": "DIVIDEND",
-			"startWith": "DIVIDENDE",
+			"startsWith": "DIVIDENDE|AUSSCHÜTTUNG",
 			"sections": [
 				{
 					"context": "SECURITY",
@@ -21,6 +20,13 @@
 					]
 				},
 				{
+					"pattern": [
+						"GESAMT (?<amount>[\\d+,.]*) (?<currency>\\w{3}+)"
+					]
+				},
+				{
+					"comment": "If the document contains taxes then there are two GESAMT pattern and we need to pick the second one",
+					"isOptional": true,
 					"pattern": [
 						"GESAMT ([\\d+,.]*) (\\w{3}+)",
 						"GESAMT (?<amount>[\\d+,.]*) (?<currency>\\w{3}+)"
@@ -64,6 +70,16 @@
 					"isOptional": true,
 					"pattern": [
 						"Solidaritätszuschlag -(?<amount>[\\d.,]+) (?<currency>\\w{3}+)"
+					],
+					"attributes": {
+						"type": "TAX"
+					}
+				},
+				{
+					"context": "UNIT",
+					"isOptional": true,
+					"pattern": [
+						"Kirchensteuer -(?<amount>[\\d.,]+) (?<currency>\\w{3}+)"
 					],
 					"attributes": {
 						"type": "TAX"

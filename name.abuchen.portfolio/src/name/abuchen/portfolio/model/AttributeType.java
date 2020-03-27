@@ -11,15 +11,18 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.format.FormatStyle;
 import java.util.Comparator;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import name.abuchen.portfolio.Messages;
+import name.abuchen.portfolio.model.LimitPrice.RelationalOperator;
 import name.abuchen.portfolio.money.Values;
 
 public class AttributeType
 {
     private static final Pattern PATTERN = Pattern.compile("^([\\d.,-]*)$"); //$NON-NLS-1$
+    private static final Pattern LIMIT_PRICE_PATTERN = Pattern.compile("^\\s*(<=?|>=?)\\s*([0-9,.']+)$"); //$NON-NLS-1$
 
     public interface Converter
     {
@@ -43,6 +46,52 @@ public class AttributeType
             return value.trim().length() > 0 ? value.trim() : null;
         }
 
+    }
+
+    public static class LimitPriceConverter implements Converter
+    {
+        private final DecimalFormat full;
+
+        public LimitPriceConverter()
+        {
+            this.full = new DecimalFormat("#,###"); //$NON-NLS-1$
+            this.full.setParseBigDecimal(true);
+        }
+
+        @Override
+        public String toString(Object object)
+        {
+            return object != null ? ((LimitPrice) object).toString() : ""; //$NON-NLS-1$
+        }
+
+        @Override
+        public Object fromString(String value)
+        {
+            try
+            {
+                if (value.length() == 0)
+                    return null;
+
+                Matcher m = LIMIT_PRICE_PATTERN.matcher(value);
+                if (!m.matches())
+                    throw new IllegalArgumentException(Messages.MsgNotAComparator);
+
+                Optional<RelationalOperator> operator = RelationalOperator.findByOperator(m.group(1));
+
+                // should not happen b/c regex pattern check
+                if (!operator.isPresent())
+                    throw new IllegalArgumentException(Messages.MsgNotAComparator);
+
+                long price = ((BigDecimal) full.parse(m.group(2))).multiply(Values.Quote.getBigDecimalFactor())
+                                .longValue();
+
+                return new LimitPrice(operator.get(), price);
+            }
+            catch (ParseException e)
+            {
+                throw new IllegalArgumentException(e);
+            }
+        }
     }
 
     private static class LongConverter implements Converter
@@ -237,6 +286,52 @@ public class AttributeType
                 return null;
 
             return Boolean.valueOf(value);
+        }
+    }
+
+    public static class BookmarkConverter implements Converter
+    {
+        public static final Pattern PLAIN = Pattern.compile("^(?<link>https?\\:\\/\\/[^ \\t\\r\\n]+)$", //$NON-NLS-1$
+                        Pattern.CASE_INSENSITIVE);
+        public static final Pattern MARKDOWN = Pattern
+                        .compile("^\\[(?<label>[^\\]]*)\\]\\((?<link>[^ \\t\\r\\n\\)]*)\\)$"); //$NON-NLS-1$
+
+        @Override
+        public String toString(Object object)
+        {
+            if (object == null)
+            {
+                return ""; //$NON-NLS-1$
+            }
+            else
+            {
+                Bookmark bookmark = (Bookmark) object;
+                return bookmark.getLabel().equals(bookmark.getPattern()) ? bookmark.getPattern()
+                                : String.format("[%s](%s)", bookmark.getLabel(), bookmark.getPattern()); //$NON-NLS-1$
+            }
+        }
+
+        @Override
+        public Object fromString(String value)
+        {
+            String trimmed = value.trim();
+
+            if (trimmed.isEmpty())
+                return null;
+
+            Matcher matcher = MARKDOWN.matcher(trimmed);
+            if (matcher.matches())
+            {
+                return new Bookmark(matcher.group("label"), matcher.group("link")); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+
+            matcher = PLAIN.matcher(value);
+            if (matcher.matches())
+            {
+                return new Bookmark(matcher.group("link"), matcher.group("link")); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+
+            throw new IllegalArgumentException(MessageFormat.format(Messages.MsgErrorInvalidURL, trimmed));
         }
     }
 

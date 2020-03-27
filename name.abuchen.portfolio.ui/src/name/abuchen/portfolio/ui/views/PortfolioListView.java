@@ -38,6 +38,7 @@ import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.PortfolioSnapshot;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
+import name.abuchen.portfolio.ui.handlers.ImportPDFHandler;
 import name.abuchen.portfolio.ui.util.ConfirmAction;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.SimpleAction;
@@ -226,7 +227,7 @@ public class PortfolioListView extends AbstractListView implements ModificationL
                         .addListener(this).attachTo(column);
         portfolioColumns.addColumn(column);
 
-        column = new NameColumn("volume", Messages.ColumnVolumeOfSecurityDeposits, SWT.RIGHT, 100); //$NON-NLS-1$
+        column = new Column("volume", Messages.ColumnVolumeOfSecurityDeposits, SWT.RIGHT, 100); //$NON-NLS-1$
         column.setLabelProvider(new ColumnLabelProvider()
         {
             CurrencyConverter converter = new CurrencyConverterImpl(factory, getClient().getBaseCurrency());
@@ -238,6 +239,20 @@ public class PortfolioListView extends AbstractListView implements ModificationL
                 return Values.Money.format(snapshot.getValue(), getClient().getBaseCurrency());
             }
         });
+        // add a sorter
+        column.setSorter(ColumnViewerSorter.create((o1, o2) -> {
+            CurrencyConverter converter = new CurrencyConverterImpl(factory, getClient().getBaseCurrency());
+
+            PortfolioSnapshot p1 = PortfolioSnapshot.create((Portfolio) o1, converter, LocalDate.now());
+            PortfolioSnapshot p2 = PortfolioSnapshot.create((Portfolio) o2, converter, LocalDate.now());
+
+            if (p1 == null)
+                return p2 == null ? 0 : -1;
+            if (p2 == null)
+                return 1;
+
+            return p1.getValue().compareTo(p2.getValue());
+        }));
         portfolioColumns.addColumn(column);
 
         column = new NoteColumn();
@@ -293,6 +308,14 @@ public class PortfolioListView extends AbstractListView implements ModificationL
             return;
 
         new SecurityContextMenu(this).menuAboutToShow(manager, null, portfolio);
+
+        if (!portfolio.isRetired())
+        {
+            manager.add(new Separator());
+            manager.add(new SimpleAction(Messages.AccountMenuImportPDF,
+                            a -> ImportPDFHandler.runImport(getPart(), Display.getDefault().getActiveShell(),
+                                            getClient(), portfolio.getReferenceAccount(), portfolio)));
+        }
 
         manager.add(new Separator());
 

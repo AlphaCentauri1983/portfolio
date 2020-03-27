@@ -9,18 +9,29 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 import org.eclipse.jface.viewers.ColumnLabelProvider;
+import org.eclipse.jface.viewers.StyledCellLabelProvider;
+import org.eclipse.jface.viewers.ViewerCell;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.custom.StyleRange;
+import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.Image;
 
 import name.abuchen.portfolio.model.Adaptor;
 import name.abuchen.portfolio.model.Attributable;
 import name.abuchen.portfolio.model.AttributeType;
 import name.abuchen.portfolio.model.Attributes;
+import name.abuchen.portfolio.model.Bookmark;
 import name.abuchen.portfolio.model.Client;
+import name.abuchen.portfolio.model.LimitPrice;
+import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.model.SecurityPrice;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
+import name.abuchen.portfolio.ui.util.Colors;
+import name.abuchen.portfolio.ui.util.DesktopAPI;
 import name.abuchen.portfolio.ui.util.viewers.AttributeEditingSupport;
 import name.abuchen.portfolio.ui.util.viewers.BooleanAttributeEditingSupport;
+import name.abuchen.portfolio.ui.util.viewers.CellItemImageClickedListener;
 import name.abuchen.portfolio.ui.util.viewers.Column;
 import name.abuchen.portfolio.ui.util.viewers.ColumnViewerSorter;
 
@@ -111,6 +122,107 @@ public class AttributeColumn extends Column
         }
     }
 
+    private static final class LimitPriceLabelProvider extends ColumnLabelProvider
+    {
+        private final AttributeType attribute;
+
+        private LimitPriceLabelProvider(AttributeType attribute)
+        {
+            this.attribute = attribute;
+        }
+
+        @Override
+        public String getText(Object element)
+        {
+            Security security = Adaptor.adapt(Security.class, element);
+            if (security == null)
+                return null;
+
+            Attributes attributes = security.getAttributes();
+            if (attributes == null)
+                return null;
+
+            Object value = attributes.get(attribute);
+            return attribute.getConverter().toString(value);
+        }
+
+        @Override
+        public Color getBackground(Object element)
+        {
+            Security security = Adaptor.adapt(Security.class, element);
+            if (security == null)
+                return null;
+
+            Attributes attributes = security.getAttributes();
+            LimitPrice limit = (LimitPrice) attributes.get(attribute);
+            if (limit == null)
+                return null;
+
+            SecurityPrice latestSecurityPrice = security.getSecurityPrice(LocalDate.now());
+            if (latestSecurityPrice == null)
+                return null;
+
+            switch (limit.getRelationalOperator())
+            {
+                case GREATER_OR_EQUAL:
+                    return latestSecurityPrice.getValue() >= limit.getValue() ? Colors.GREEN : null;
+                case SMALLER_OR_EQUAL:
+                    return latestSecurityPrice.getValue() <= limit.getValue() ? Colors.RED : null;
+                case GREATER:
+                    return latestSecurityPrice.getValue() > limit.getValue() ? Colors.GREEN : null;
+                case SMALLER:
+                    return latestSecurityPrice.getValue() < limit.getValue() ? Colors.RED : null;
+                default:
+                    return null;
+            }
+        }
+    }
+
+    private static final class BookmarkLabelProvider extends StyledCellLabelProvider // NOSONAR
+                    implements CellItemImageClickedListener
+    {
+        private final AttributeType attribute;
+
+        private BookmarkLabelProvider(AttributeType attribute)
+        {
+            this.attribute = attribute;
+        }
+
+        private Optional<Bookmark> getValue(Object element)
+        {
+            Attributable attributable = Adaptor.adapt(Attributable.class, element);
+            if (attributable == null)
+                return Optional.empty();
+
+            Attributes attributes = attributable.getAttributes();
+            return Optional.ofNullable((Bookmark) attributes.get(attribute));
+        }
+
+        @Override
+        public void update(ViewerCell cell)
+        {
+            String label = getValue(cell.getElement()).map(Bookmark::getLabel).orElse(""); //$NON-NLS-1$
+            cell.setText(label);
+            if (!label.isEmpty())
+                cell.setImage(Images.BOOKMARK_OPEN.image());
+
+            StyleRange styleRange = new StyleRange();
+            styleRange.underline = true;
+            styleRange.underlineStyle = SWT.UNDERLINE_SINGLE;
+            styleRange.data = cell.getElement();
+            styleRange.start = 0;
+            styleRange.length = label.length();
+
+            cell.setStyleRanges(new StyleRange[] { styleRange });
+        }
+
+        @Override
+        public void onImageClicked(Object element)
+        {
+            getValue(element).ifPresent(bm -> DesktopAPI.browse(bm.getPattern()));
+        }
+    }
+
     private static final String ID = "attribute$"; //$NON-NLS-1$
 
     private AttributeColumn(final AttributeType attribute)
@@ -126,6 +238,17 @@ public class AttributeColumn extends Column
         {
             setLabelProvider(new BooleanLabelProvider(attribute));
             new BooleanAttributeEditingSupport(attribute).attachTo(this);
+        }
+        else if (attribute.getType() == LimitPrice.class)
+        {
+            setStyle(SWT.RIGHT);
+            setLabelProvider(new LimitPriceLabelProvider(attribute));
+            new AttributeEditingSupport(attribute).attachTo(this);
+        }
+        else if (attribute.getType() == Bookmark.class)
+        {
+            setLabelProvider(new BookmarkLabelProvider(attribute));
+            new AttributeEditingSupport(attribute).attachTo(this);
         }
         else
         {
